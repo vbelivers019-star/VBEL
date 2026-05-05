@@ -247,6 +247,7 @@ document.getElementById("phone").textContent=data.phone||"N/A"
 document.getElementById("circleDate").textContent=formatDate(data.circleDate)
 
 window.currentEmail=data.email||null
+window.currentName=data.name||"Applicant"
 
 const mapLinks={
 "Kurnool":"https://maps.app.goo.gl/TVFiSap2dGzCM9Lj7",
@@ -279,14 +280,14 @@ const {jsPDF}=window.jspdf
 const element=document.getElementById("letter")
 
 const canvas=await html2canvas(element,{
-scale:2,
+scale:1,           // ✅ FIXED: was 2, now 1 — keeps PDF under Netlify's 6MB body limit
 useCORS:true,
 scrollY:-window.scrollY,
 windowWidth:element.scrollWidth,
 windowHeight:element.scrollHeight
 })
 
-const imgData=canvas.toDataURL("image/jpeg",0.9)
+const imgData=canvas.toDataURL("image/jpeg",0.7)  // ✅ FIXED: was 0.9, now 0.7 — smaller file size
 
 const pdf=new jsPDF("p","mm","a4")
 
@@ -302,20 +303,22 @@ method:"POST",
 headers:{'Content-Type':'application/json'},
 body:JSON.stringify({
 email:window.currentEmail,
-name:document.getElementById("name").innerText,
+name:window.currentName,  // ✅ FIXED: was document.getElementById("name").innerText (less reliable)
 pdfData:pdfBase64
 })
 })
 
+const result=await response.json()
+
 if(response.ok){
-alert("Email sent successfully")
+alert("✅ Email sent successfully!")
 }else{
-alert("Failed to send email")
+alert("❌ Failed: "+(result.error||"Unknown error"))
 }
 
 }catch(e){
 console.error(e)
-alert("Server error")
+alert("❌ Error: "+e.message)
 }
 
 btn.innerText="✉ Send PDF via Email"
