@@ -7,7 +7,8 @@ const nodemailer = require("nodemailer");
 const app = express();
 const router = express.Router();
 
-app.use(express.json({ limit: "50mb" }));
+// Netlify has a ~6MB body limit — keep this reasonable
+app.use(express.json({ limit: "6mb" }));
 app.use(cors());
 
 /* ================= DATABASE ================= */
@@ -15,7 +16,7 @@ const mongoURI = "mongodb+srv://mahesh_21:teI4gVKu0Vnzqy2y@cluster0.gnikcjh.mong
 
 const connectToDatabase = async () => {
   if (mongoose.connection.readyState === 1) return;
-  await mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 5000 });
+  await mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 8000 });
 };
 
 /* ================= SCHEMAS ================= */
@@ -40,70 +41,83 @@ const logSchema = new mongoose.Schema({
 });
 const Log = mongoose.models.Log || mongoose.model("Log", logSchema);
 
-/* ================= MAIL ================= */
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: "vbmarketingpvt.ltd@gmail.com",
-    pass: "fhrg yvvp rvfo gybp"
-  }
-});
-
 /* ================= AUTH ================= */
 router.post("/auth/register", async (req, res) => {
   try {
     await User.create(req.body);
     res.json({ message: "Account created" });
-  } catch {
+  } catch (err) {
+    console.error("REGISTER ERROR:", err.message);
     res.status(400).json({ error: "User already exists" });
   }
 });
 
 router.post("/auth/login", async (req, res) => {
-  const user = await User.findOne(req.body);
-  user ? res.json({ success: true }) : res.status(401).json({ error: "Invalid login" });
-});
-
-/* ================= APPLICATION ROUTES ================= */
-
-// Duplicate check
-router.get("/check-duplicate/:regNo", async (req, res) => {
-  const existing = await Application.findOne({ regNo: req.params.regNo, isDeleted: false });
-  res.json({ exists: !!existing, name: existing ? existing.name : null });
-});
-
-// Get applications (active or bin)
-router.get("/applications", async (req, res) => {
-  const isBin = req.query.bin === "true";
-  const apps = await Application.find({ isDeleted: isBin }).sort({ regNo: 1 });
-  res.json(apps);
-});
-
-// Save or update application
-router.post("/applications", async (req, res) => {
-  const { id, ...data } = req.body;
-
-  if (id && mongoose.Types.ObjectId.isValid(id)) {
-    await Application.findByIdAndUpdate(id, data);
-    res.json({ message: "Updated" });
-  } else {
-    await Application.create(data);
-    res.json({ message: "Saved" });
+  try {
+    const user = await User.findOne(req.body);
+    user ? res.json({ success: true }) : res.status(401).json({ error: "Invalid login" });
+  } catch (err) {
+    console.error("LOGIN ERROR:", err.message);
+    res.status(500).json({ error: "Server error during login" });
   }
 });
 
-// Move to bin
-router.delete("/applications/:id", async (req, res) => {
-  await Application.findByIdAndUpdate(req.params.id, { isDeleted: true });
-  res.json({ message: "Deleted" });
+/* ================= APPLICATION ROUTES ================= */
+router.get("/check-duplicate/:regNo", async (req, res) => {
+  try {
+    const existing = await Application.findOne({ regNo: req.params.regNo, isDeleted: false });
+    res.json({ exists: !!existing, name: existing ? existing.name : null });
+  } catch (err) {
+    console.error("DUPLICATE CHECK ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Restore from bin
+router.get("/applications", async (req, res) => {
+  try {
+    const isBin = req.query.bin === "true";
+    const apps = await Application.find({ isDeleted: isBin }).sort({ regNo: 1 });
+    res.json(apps);
+  } catch (err) {
+    console.error("GET APPS ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/applications", async (req, res) => {
+  try {
+    const { id, ...data } = req.body;
+    if (id && mongoose.Types.ObjectId.isValid(id)) {
+      await Application.findByIdAndUpdate(id, data);
+      res.json({ message: "Updated" });
+    } else {
+      await Application.create(data);
+      res.json({ message: "Saved" });
+    }
+  } catch (err) {
+    console.error("SAVE APP ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/applications/:id", async (req, res) => {
+  try {
+    await Application.findByIdAndUpdate(req.params.id, { isDeleted: true });
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    console.error("DELETE ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post("/applications/restore/:id", async (req, res) => {
-  await Application.findByIdAndUpdate(req.params.id, { isDeleted: false });
-  res.json({ message: "Restored" });
+  try {
+    await Application.findByIdAndUpdate(req.params.id, { isDeleted: false });
+    res.json({ message: "Restored" });
+  } catch (err) {
+    console.error("RESTORE ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ================= EMAIL WITH PDF ================= */
@@ -111,17 +125,46 @@ router.post("/send-mail", async (req, res) => {
   try {
     const { email, name, pdfData } = req.body;
 
-    if (!email || !pdfData) {
-      return res.status(400).json({ error: "Missing email or PDF data" });
+    console.log("SEND-MAIL called | to:", email, "| name:", name);
+    console.log("pdfData received:", pdfData ? `${pdfData.length} chars` : "MISSING");
+
+    if (!email || !name || !pdfData) {
+      return res.status(400).json({ error: "Missing email, name, or PDF data" });
     }
 
-    // pdfData comes as a base64 data URI: "data:application/pdf;base64,XXXX..."
-    // We must strip the prefix and decode it into a Buffer
+    // Strip the data URI prefix: "data:application/pdf;base64,XXXX"
     const base64String = pdfData.includes("base64,")
       ? pdfData.split("base64,")[1]
       : pdfData;
 
+    // Guard against Netlify's 6MB body limit
+    const estimatedBytes = Math.ceil(base64String.length * 0.75);
+    console.log("Estimated PDF size:", Math.round(estimatedBytes / 1024), "KB");
+
+    if (estimatedBytes > 4 * 1024 * 1024) {
+      return res.status(400).json({
+        error: "PDF too large (max ~4MB). Reduce canvas scale in selection.html from 2 to 1."
+      });
+    }
+
     const pdfBuffer = Buffer.from(base64String, "base64");
+
+    // Create transporter fresh each invocation (required for serverless)
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user: "vbmarketingpvt.ltd@gmail.com",
+        // Must be a Gmail App Password (16 chars, no spaces).
+        // Generate at: https://myaccount.google.com/apppasswords
+        pass: "fhrg yvvp rvfo gybp"
+      }
+    });
+
+    // Verify SMTP before sending so we get a clear error if auth fails
+    await transporter.verify();
+    console.log("SMTP verified ✅");
 
     await transporter.sendMail({
       from: '"V Believers HR" <vbmarketingpvt.ltd@gmail.com>',
@@ -141,25 +184,31 @@ You are requested to carefully read the attached document and confirm your accep
 
 We welcome you to the V Believers family and look forward to a long and successful professional association.
 
-
 Warm Regards,
 HR Department
 V Believers Marketing Pvt Ltd.`,
       attachments: [
         {
           filename: `${name}_Selection_Letter.pdf`,
-          content: pdfBuffer,        // ✅ Buffer, not path or raw base64 string
+          content: pdfBuffer,          // ✅ Buffer — correct for base64 input
           contentType: "application/pdf"
         }
       ]
     });
 
-    await Log.create({ action: "EMAIL_SENT", details: email });
+    console.log("Email sent to:", email);
+
+    // Log — non-fatal if it fails
+    try {
+      await Log.create({ action: "EMAIL_SENT", details: email });
+    } catch (logErr) {
+      console.warn("Log write failed (non-fatal):", logErr.message);
+    }
 
     res.json({ message: "Email sent successfully" });
 
   } catch (err) {
-    console.error("MAIL ERROR:", err);
+    console.error("SEND-MAIL ERROR:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -168,6 +217,18 @@ V Believers Marketing Pvt Ltd.`,
 app.use("/api", router);
 
 module.exports.handler = async (event, context) => {
-  await connectToDatabase();
+  // Prevents Lambda/Netlify from waiting for the event loop to drain
+  context.callbackWaitsForEmptyEventLoop = false;
+
+  try {
+    await connectToDatabase();
+  } catch (dbErr) {
+    console.error("DB CONNECTION FAILED:", dbErr.message);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Database connection failed: " + dbErr.message })
+    };
+  }
+
   return serverless(app)(event, context);
 };
