@@ -45,7 +45,10 @@ const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
   secure: true,
-  auth: { user: "vbmarketingpvt.ltd@gmail.com", pass: "fhrg yvvp rvfo gybp" }
+  auth: {
+    user: "vbmarketingpvt.ltd@gmail.com",
+    pass: "fhrg yvvp rvfo gybp"
+  }
 });
 
 /* ================= AUTH ================= */
@@ -103,7 +106,7 @@ router.post("/applications/restore/:id", async (req, res) => {
   res.json({ message: "Restored" });
 });
 
-/* ================= EMAIL ================= */
+/* ================= EMAIL WITH PDF ================= */
 router.post("/send-mail", async (req, res) => {
   try {
     const { email, name, pdfData } = req.body;
@@ -111,6 +114,14 @@ router.post("/send-mail", async (req, res) => {
     if (!email || !pdfData) {
       return res.status(400).json({ error: "Missing email or PDF data" });
     }
+
+    // pdfData comes as a base64 data URI: "data:application/pdf;base64,XXXX..."
+    // We must strip the prefix and decode it into a Buffer
+    const base64String = pdfData.includes("base64,")
+      ? pdfData.split("base64,")[1]
+      : pdfData;
+
+    const pdfBuffer = Buffer.from(base64String, "base64");
 
     await transporter.sendMail({
       from: '"V Believers HR" <vbmarketingpvt.ltd@gmail.com>',
@@ -122,7 +133,7 @@ Congratulations!
 
 Respected Sir/Madam,
 
-We are pleased to inform you that you have been selected at **V Believers Marketing Private Limited.
+We are pleased to inform you that you have been selected at V Believers Marketing Private Limited.
 
 Please find attached the detailed Selection Letter in PDF format, which includes all terms and conditions of your appointment along with other important information.
 
@@ -134,11 +145,13 @@ We welcome you to the V Believers family and look forward to a long and successf
 Warm Regards,
 HR Department
 V Believers Marketing Pvt Ltd.`,
-      attachments: [{
-        filename: `${name}_Selection_Letter.pdf`,
-        content: pdfData.split("base64,")[1],
-        encoding: "base64"
-      }]
+      attachments: [
+        {
+          filename: `${name}_Selection_Letter.pdf`,
+          content: pdfBuffer,        // ✅ Buffer, not path or raw base64 string
+          contentType: "application/pdf"
+        }
+      ]
     });
 
     await Log.create({ action: "EMAIL_SENT", details: email });
@@ -147,7 +160,7 @@ V Believers Marketing Pvt Ltd.`,
 
   } catch (err) {
     console.error("MAIL ERROR:", err);
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
