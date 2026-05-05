@@ -1,3 +1,4 @@
+```
 const express = require("express");
 const serverless = require("serverless-http");
 const mongoose = require("mongoose");
@@ -91,39 +92,21 @@ router.delete("/applications/:id", async (req, res) => {
 
 router.post("/send-mail", async (req, res) => {
   const { email, name, pdfData } = req.body;
-  
-  // Validate required fields
-  if (!email || !name || !pdfData) {
-    return res.status(400).json({ error: "Missing email, name, or pdfData" });
-  }
-
   try {
-    // Convert Base64 data URI to Buffer
-    const base64Data = pdfData.replace(/^data:application\/pdf;base64,/, "");
-    const pdfBuffer = Buffer.from(base64Data, "base64");
-
     await transporter.sendMail({
       from: '"V Believers HR" <pallemaheshreddy200@gmail.com>',
       to: email,
       subject: `Selection Letter - ${name}`,
       text: `Dear ${name},\n\nPlease find your Selection Letter attached.`,
-      attachments: [
-        {
-          filename: `${name}_Selection_Letter.pdf`,
-          content: pdfBuffer,
-          contentType: "application/pdf"
-        }
-      ]
+      attachments: [{ filename: `${name}_Letter.pdf`, path: pdfData }]
     });
-
-    await new Log({ action: "EMAIL_SENT", details: `Sent to ${name} (${email})` }).save();
+    await new Log({ action: "EMAIL_SENT", details: `Sent to ${name}` }).save();
     res.json({ message: "Email Sent Successfully" });
-  } catch (err) { 
-    console.error("Email error:", err);
-    res.status(500).json({ error: "Mail failed: " + err.message }); 
-  }
+  } catch (err) { res.status(500).json({ error: "Mail failed" }); }
 });
 
 // Mandatory for Netlify
 app.use("/.netlify/functions/api", router);
 module.exports.handler = serverless(app);
+```
+i have to send pdf also this  is my now code  modift this and give full code
