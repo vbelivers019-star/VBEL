@@ -158,7 +158,7 @@ router.post("/send-mail", async (req, res) => {
         user: "vbmarketingpvt.ltd@gmail.com",
         // Must be a Gmail App Password (16 chars, no spaces).
         // Generate at: https://myaccount.google.com/apppasswords
-        pass: "fhrg yvvp rvfo gybp"
+        pass: "ozmu mpgv uozc njxg"
       }
     });
 
